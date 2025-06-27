@@ -1,139 +1,137 @@
 package com.example.carshowcase;
-
+import java.util.ArrayList;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.BaseAdapter;
-import android.widget.ImageView;
-import android.widget.ListView;
-import android.widget.TextView;
-import android.widget.Toast;
-
+import android.util.Log;
+import android.view.*;
+import android.widget.*;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
+import com.google.firebase.database.*;
+
 public class MainActivity extends AppCompatActivity {
 
-    String[] cars = {"BMW", "Ford", "Lamborghini", "Toyota"};
-    int[] photos = {R.drawable.bmw, R.drawable.ford, R.drawable.lambo, R.drawable.toyota};
     ListView carsList;
+    ArrayList<Car> carList = new ArrayList<>();
+    CarAdapter adapter;
+    DatabaseReference carsRef;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // ✅ Set up Toolbar before anything else
+        // Toolbar
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+        getSupportActionBar().setTitle("Car Showcase");
 
-        // ✅ Initialize ListView
+        // Firebase DB Reference
+        carsRef = FirebaseDatabase.getInstance().getReference("cars");
+
+        // ListView and adapter setup
         carsList = findViewById(R.id.myList);
-        RaziAdapter raziAdapter = new RaziAdapter(this, cars, photos);
-        carsList.setAdapter(raziAdapter);
+        adapter = new CarAdapter(this, carList);
+        carsList.setAdapter(adapter);
+
+        // Fetch from Firebase
+        fetchCarData();
     }
 
-    // ✅ Inflate Menu
+    private void fetchCarData() {
+        carsRef.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                carList.clear();
+                for (DataSnapshot carSnap : snapshot.getChildren()) {
+                    Car car = carSnap.getValue(Car.class);
+                    if (car != null) carList.add(car);
+                }
+                adapter.notifyDataSetChanged();
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                Toast.makeText(MainActivity.this, "Failed to load cars", Toast.LENGTH_SHORT).show();
+                Log.e("Firebase", "Error: ", error.toException());
+            }
+        });
+    }
+
+    // Toolbar menu
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        MenuInflater inflater = getMenuInflater();
-        inflater.inflate(R.menu.toolbar_menu, menu);
+        getMenuInflater().inflate(R.menu.toolbar_menu, menu);
         return true;
     }
 
-    // ✅ Handle Toolbar Menu Clicks
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        int id = item.getItemId();
-
-        if (id == R.id.action_home) {
-            Intent homeIntent = new Intent(this, MainActivity.class);
-            startActivity(homeIntent);
-            return true;
-        } else if (id == R.id.action_about) {
-            Intent aboutIntent = new Intent(this, AboutActivity.class);
-            startActivity(aboutIntent);
+        if (item.getItemId() == R.id.action_about) {
+            startActivity(new Intent(this, AboutActivity.class));
             return true;
         }
-
         return super.onOptionsItemSelected(item);
     }
 
-    class RaziAdapter extends BaseAdapter {
-
+    // Adapter
+    class CarAdapter extends BaseAdapter {
         Context context;
-        String[] carNames;
-        int[] carImages;
+        ArrayList<Car> cars;
         LayoutInflater inflater;
 
-        RaziAdapter(Context context, String[] carNames, int[] carImages) {
+        CarAdapter(Context context, ArrayList<Car> cars) {
             this.context = context;
-            this.carNames = carNames;
-            this.carImages = carImages;
-            inflater = LayoutInflater.from(context);
+            this.cars = cars;
+            this.inflater = LayoutInflater.from(context);
+        }
+
+        @Override public int getCount() { return cars.size(); }
+        @Override public Object getItem(int i) { return cars.get(i); }
+        @Override public long getItemId(int i) { return i; }
+
+        class ViewHolder {
+            TextView carId, carName;
+            ImageView carImage;
         }
 
         @Override
-        public int getCount() {
-            return carNames.length;
-        }
-
-        @Override
-        public Object getItem(int i) {
-            return carNames[i];
-        }
-
-        @Override
-        public long getItemId(int i) {
-            return i;
-        }
-
-        @Override
-        public View getView(int i, View view, ViewGroup viewGroup) {
-            if (view == null) {
-                view = inflater.inflate(R.layout.list_item, viewGroup, false);
+        public View getView(int i, View convertView, ViewGroup parent) {
+            ViewHolder holder;
+            if (convertView == null) {
+                convertView = inflater.inflate(R.layout.list_item, parent, false);
+                holder = new ViewHolder();
+                holder.carId = convertView.findViewById(R.id.carid);
+                holder.carName = convertView.findViewById(R.id.carName);
+                holder.carImage = convertView.findViewById(R.id.carImage);
+                convertView.setTag(holder);
+            } else {
+                holder = (ViewHolder) convertView.getTag();
             }
 
-            ImageView carPhoto = view.findViewById(R.id.carImage);
-            TextView carName = view.findViewById(R.id.carName);
+            Car car = cars.get(i);
+            holder.carId.setText("ID: " + car.id);
+            holder.carName.setText(car.name);
 
-            carPhoto.setImageResource(carImages[i]);
-            carName.setText(carNames[i]);
+            int imgResId = getResources().getIdentifier(car.image.toLowerCase(), "drawable", getPackageName());
+            if (imgResId != 0) {
+                holder.carImage.setImageResource(imgResId);
+            } else {
+                holder.carImage.setImageResource(R.drawable.placeholder); // optional fallback image
+            }
 
-            // Car descriptions
-            String[] descriptions = {
-                    "BMW: A luxury car known for performance and elegance.",
-                    "Ford: An American car brand with reliability and power.",
-                    "Lamborghini: A high-performance sports car with a sleek design.",
-                    "Toyota: A reliable and fuel-efficient car brand."
-            };
-
-            int position = i; // Use final variable for inner classes
-
-            // ✅ Clicking the entire list item opens CarDetailActivity
-            view.setOnClickListener(v -> {
+            convertView.setOnClickListener(v -> {
                 Intent intent = new Intent(context, CarDetailActivity.class);
-                intent.putExtra("car_name", carNames[position]);
-                intent.putExtra("car_image", carImages[position]); // Pass correct image ID
-                intent.putExtra("car_description", descriptions[position]);
+                intent.putExtra("car_name", car.name);
+                intent.putExtra("car_image", imgResId);
+                intent.putExtra("car_description", car.description);
                 context.startActivity(intent);
             });
 
-            // ✅ Clicking on car name shows a Toast
-            carName.setOnClickListener(view1 ->
-                    Toast.makeText(context, carNames[position], Toast.LENGTH_SHORT).show());
-
-            // ✅ Clicking on car image shows a Toast
-            carPhoto.setOnClickListener(view12 ->
-                    Toast.makeText(context, carNames[position], Toast.LENGTH_SHORT).show());
-
-            return view;
+            return convertView;
         }
     }
 }
